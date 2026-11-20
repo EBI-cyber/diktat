@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diktat</title>
+  <style>
+    :root {
+      --bg: #121417;
+      --panel: #1c1f24;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #4c8dff;
+      --rec: #e5484d;
+      --ok: #30a46c;
+      --warn-bg: #3a2a12;
+      --warn-border: #c98a1b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px;
+      gap: 20px;
+    }
+    h1 { margin: 0; font-size: 36px; font-weight: 600; }
+
+    .notice {
+      width: 100%;
+      max-width: 1100px;
+      background: var(--warn-bg);
+      border: 2px solid var(--warn-border);
+      border-radius: 16px;
+      padding: 18px 24px;
+      line-height: 1.45;
+    }
+    .notice[hidden] { display: none; }
+    .notice strong { display: block; font-size: 26px; margin-bottom: 6px; }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    button {
+      font: inherit;
+      color: var(--text);
+      border: none;
+      cursor: pointer;
+      transition: transform .1s, background .2s, box-shadow .2s;
+    }
+    button:focus-visible { outline: 4px solid #fff; outline-offset: 4px; }
+    button:active { transform: scale(.96); }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    #mic {
+      width: 180px;
+      height: 180px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 0 0 rgba(229, 72, 77, 0);
+    }
+    #mic:hover:not(:disabled) { filter: brightness(1.15); }
+    #mic svg { width: 84px; height: 84px; fill: #fff; }
+    #mic.recording {
+      background: var(--rec);
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(229, 72, 77, .6); }
+      70%  { box-shadow: 0 0 0 36px rgba(229, 72, 77, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0); }
+    }
+
+    .side { display: flex; flex-direction: column; gap: 16px; }
+    .big {
+      min-width: 260px;
+      min-height: 84px;
+      padding: 0 32px;
+      border-radius: 18px;
+      font-size: 28px;
+      font-weight: 600;
+      background: #2d333b;
+    }
+    .big:hover:not(:disabled) { background: #3a414b; }
+    #copy { background: var(--ok); }
+    #copy:hover:not(:disabled) { filter: brightness(1.15); background: var(--ok); }
+
+    #status {
+      min-height: 1.5em;
+      color: var(--muted);
+      font-size: 24px;
+      text-align: center;
+    }
+
+    textarea {
+      width: 100%;
+      max-width: 1100px;
+      flex: 1;
+      min-height: 300px;
+      background: var(--panel);
+      color: var(--text);
+      border: 2px solid #2d333b;
+      border-radius: 16px;
+      padding: 20px 24px;
+      font: inherit;
+      font-size: 30px;
+      line-height: 1.5;
+      resize: none;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+    textarea::placeholder { color: #5f6368; }
+  </style>
+</head>
+<body>
+  <h1>Diktat</h1>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <div class="controls">
+    <button id="mic" aria-label="Aufnahme starten" title="Aufnahme starten / stoppen">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/>
+      </svg>
+    </button>
+    <div class="side">
+      <button id="copy" class="big">Kopieren</button>
+      <button id="clear" class="big">Leeren</button>
+    </div>
+  </div>
+
+  <div id="status" role="status" aria-live="polite">Tippe auf das Mikrofon, um zu diktieren.</div>
+
+  <textarea id="text" placeholder="Hier erscheint dein diktierter Text. Du kannst ihn auch direkt bearbeiten."></textarea>
+
+  <script>
+    const micBtn   = document.getElementById('mic');
+    const copyBtn  = document.getElementById('copy');
+    const clearBtn = document.getElementById('clear');
+    const textEl   = document.getElementById('text');
+    const statusEl = document.getElementById('status');
+    const noticeEl = document.getElementById('notice');
+
+    const KEYBOARD_TIP =
+      'Alternative: Tippe ins Textfeld. Auf der Quest-Tastatur gibt es ein ' +
+      '<b>Mikrofon-Symbol</b> – damit kannst du trotzdem direkt in das Feld diktieren.';
+
+    function showNotice(title, text) {
+      noticeEl.innerHTML = '<strong>' + title + '</strong>' + text + '<br><br>' + KEYBOARD_TIP;
+      noticeEl.hidden = false;
+    }
+    function setStatus(msg) { statusEl.textContent = msg; }
+
+    // ---- Spracherkennung ----
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let listening = false;
+    let wantListening = false;
+    let gotResult = false;
+    let baseText = '';   // Text vor dem aktuellen Diktat-Abschnitt
+
+    if (!SR) {
+      micBtn.disabled = true;
+      setStatus('Spracherkennung nicht verfügbar.');
+      showNotice(
+        'Dieser Browser unterstützt keine Spracherkennung.',
+        'Die Web Speech API fehlt hier – das ist beim Quest-Browser leider üblich. ' +
+        'In Chrome oder Edge am PC oder Android-Handy funktioniert die Seite.'
+      );
+    } else if (!window.isSecureContext) {
+      micBtn.disabled = true;
+      showNotice(
+        'Unsichere Verbindung.',
+        'Das Mikrofon funktioniert nur über HTTPS. Öffne die Seite über https://…'
+      );
+    } else {
+      recognition = new SR();
+      recognition.lang = 'de-DE';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onstart = () => {
+        listening = true;
+        micBtn.classList.add('recording');
+        micBtn.setAttribute('aria-label', 'Aufnahme stoppen');
+        setStatus('🎙️ Ich höre zu … sprich jetzt. Zum Beenden erneut tippen.');
+      };
+
+      recognition.onresult = (e) => {
+        gotResult = true;
+        let finalPart = '';
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) finalPart += t;
+          else interim += t;
+        }
+        if (finalPart) {
+          baseText = joinText(baseText, finalPart.trim());
+        }
+        textEl.value = interim ? joinText(baseText, interim.trim()) : baseText;
+        textEl.scrollTop = textEl.scrollHeight;
+      };
+
+      recognition.onerror = (e) => {
+        wantListening = false;
+        const msgs = {
+          'not-allowed':
+            ['Kein Zugriff auf das Mikrofon.',
+             'Bitte erlaube den Mikrofonzugriff (Schloss-Symbol neben der Adresse) und versuche es erneut.'],
+          'service-not-allowed':
+            ['Spracherkennung wird von diesem Browser blockiert.',
+             'Der Browser kennt die Funktion, stellt aber keinen Erkennungsdienst bereit – typisch für den Quest-Browser.'],
+          'network':
+            ['Spracherkennung nicht erreichbar.',
+             'Der Erkennungsdienst des Browsers antwortet nicht. Prüfe die Internetverbindung – auf der Quest fehlt dieser Dienst oft ganz.'],
+          'audio-capture':
+            ['Kein Mikrofon gefunden.',
+             'Es wurde kein Mikrofon erkannt.'],
+          'language-not-supported':
+            ['Deutsch wird nicht unterstützt.',
+             'Dieser Browser kann kein Deutsch erkennen.'],
+        };
+        if (e.error === 'no-speech') {
+          setStatus('Nichts gehört – tippe erneut auf das Mikrofon.');
+          return;
+        }
+        if (e.error === 'aborted') return;
+        const [title, text] = msgs[e.error] ||
+          ['Spracherkennung fehlgeschlagen.', 'Fehler: ' + e.error];
+        showNotice(title, text);
+        setStatus(title);
+      };
+
+      recognition.onend = () => {
+        listening = false;
+        // Manche Browser beenden nach einer Pause von selbst – dann weitermachen.
+        if (wantListening && gotResult) {
+          try { recognition.start(); return; } catch (_) {}
+        }
+        if (wantListening && !gotResult) {
+          // Sofort beendet, ohne je etwas zu liefern -> Dienst funktioniert hier nicht.
+          showNotice(
+            'Spracherkennung startet nicht.',
+            'Der Browser hat die Aufnahme sofort beendet, ohne Text zu liefern. ' +
+            'Vermutlich fehlt hier der Erkennungsdienst (häufig im Quest-Browser).'
+          );
+        }
+        wantListening = false;
+        micBtn.classList.remove('recording');
+        micBtn.setAttribute('aria-label', 'Aufnahme starten');
+        if (!noticeEl.hidden) return;
+        setStatus('Aufnahme beendet. Tippe auf das Mikrofon, um weiterzudiktieren.');
+      };
+
+      micBtn.addEventListener('click', () => {
+        if (wantListening || listening) {
+          wantListening = false;
+          recognition.stop();
+          return;
+        }
+        noticeEl.hidden = true;
+        baseText = textEl.value;   // eigene Bearbeitungen übernehmen
+        gotResult = false;
+        wantListening = true;
+        try {
+          recognition.start();
+        } catch (err) {
+          wantListening = false;
+          showNotice('Spracherkennung konnte nicht starten.', String(err.message || err));
+        }
+      });
+    }
+
+    function joinText(a, b) {
+      if (!a) return b;
+      if (!b) return a;
+      return /\s$/.test(a) ? a + b : a + ' ' + b;
+    }
+
+    // Bearbeitungen während einer Pause übernehmen
+    textEl.addEventListener('input', () => { baseText = textEl.value; });
+
+    // ---- Kopieren ----
+    copyBtn.addEventListener('click', async () => {
+      const text = textEl.value;
+      if (!text.trim()) { setStatus('Nichts zu kopieren – das Textfeld ist leer.'); return; }
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch (_) {
+        textEl.focus();
+        textEl.select();
+        try { ok = document.execCommand('copy'); } catch (_) {}
+      }
+      if (ok) {
+        const old = copyBtn.textContent;
+        copyBtn.textContent = '✓ Kopiert!';
+        setStatus('Text wurde in die Zwischenablage kopiert.');
+        setTimeout(() => { copyBtn.textContent = old; }, 2000);
+      } else {
+        textEl.select();
+        setStatus('Kopieren nicht möglich – Text ist markiert, bitte manuell kopieren.');
+      }
+    });
+
+    // ---- Leeren ----
+    clearBtn.addEventListener('click', () => {
+      if (textEl.value && !confirm('Den ganzen Text löschen?')) return;
+      textEl.value = '';
+      baseText = '';
+      setStatus('Textfeld geleert.');
+    });
+  </script>
+</body>
+</html>
